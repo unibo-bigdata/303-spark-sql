@@ -48,7 +48,7 @@ Load a Parquet file (User data)
 # Spark 1
 val dfUserData = sqlContext.read.load("/bigdata/dataset/userdata/userdata.parquet")
 # Spark 2
-spark.read.format("json").load("/bigdata/dataset/userdata/userdata.parquet")
+val dfUserData = spark.read.format("json").load("/bigdata/dataset/userdata/userdata.parquet")
 ```
 
 Load a Hive table (Geography)
@@ -93,9 +93,51 @@ df_movies.write.parquet("movies.parquet")
 
 ## 303-3 Basic SQL Operations
 
-## 303-4 RDD Operations
+```shell
+val dfWeather = sc.textFile("hdfs:/bigdata/dataset/weather-sample").map(WeatherData.extract).toDF()
+val dfStation = sc.textFile("hdfs:/bigdata/dataset/weather-info/stations.csv").map(StationData.extract).toDF()
 
-## 303-5 Execution plan evalutaion
+# Spark 1
+dfWeather.registerTempTable("weather")
+dfStation.registerTempTable("station")
+# Spark 2
+dfWeather.createOrReplaceTempView("weather")
+dfStation.createOrReplaceTempView("station")
 
-## 303-6 Performance evaluation
+val dfJoin = sqlContext.sql("select w.*, s.* from weather w, station s where w.usaf=s.usaf and w.wban = s.wban")
+dfJoin.printSchema()
 
+val q1 = dfJoin.filter("elevation > 100").select("country","elevation")
+val q2 = dfJoin.groupBy("country").agg(avg("temperature")).orderBy(asc("country"))
+val q3 = dfJoin.groupBy("country").agg(avg("temperature").as("avgTemp")).orderBy(desc("avgTemp"))
+q1.show()
+q2.show()
+q3.show()
+```
+
+Try out some queries on the available data frames. E.g., given dfTransactions, calculate the average price per city converting from EUR to USD (consider an exchange rate of 1€ = 1.2$). Save the result to a Parquet file.
+
+## 303-4 Execution plan evalutaion
+
+Verify predicate push-down
+
+```
+q1.explain
+val q4 = sqlContext.sql("select w.*, s.* from weather w, station s where w.usaf=s.usaf and w.wban = s.wban and elevation > 100")
+q4.explain
+```
+
+Evaluate broadcasting
+
+```
+# Spark 1
+val dfJoin2 = dfWeather.join(broadcast(dfStation),dfWeather("usaf")===dfStation("usaf") && dfWeather("wban") === dfStation("wban"))
+# Spark 2
+val dfJoin2 = sqlContext.sql("/*+ broadcast(s) */ select w.*, s.* from weather w, station s where w.usaf=s.usaf and w.wban = s.wban")
+
+dfJoin2.explain
+dfJoin.explain
+
+dfJoin2.count()
+dfJoin.count()
+```
